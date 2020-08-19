@@ -6,7 +6,7 @@ require 'bundler/setup'
 require 'pry'
 Bundler.require
 
-file_name = "mes-july2020.csv"
+file_name = "../mes-july2020.csv"
 
 data = CSV.read(file_name, headers: true)
 
