@@ -1,4 +1,4 @@
-from enum import Enum 
+from enum import Enum
 import csv
 import itertools
 import uuid
@@ -7,11 +7,15 @@ from typing import List
 import pandas as pd
 import numpy as np
 import math
+from typing import Dict, List
+
+from graph_results import generate_plot
 
 
-LOAD_LAST_ROWS = 50_000 # 400_000
+LOAD_LAST_ROWS = 50_000  # 400_000
 SKIP_ROWS = 2891488 - LOAD_LAST_ROWS  # TODO, dynaically calculate 2891488
 NROWS = LOAD_LAST_ROWS
+
 
 class OrderType(Enum):
     STOP = "STOP"
@@ -27,6 +31,7 @@ class OrderSide(Enum):
 lot_size = 1
 payline_points = 5.0
 risk_points = 4.0
+reset_extension_pts = 1.5
 
 
 def get_instrument_data() -> List:
@@ -62,17 +67,22 @@ def determine_or(df):
 
 
 class Order:
-    def __init__(self, buy_or_sell, order_type: OrderType, price, quantity, oco_id, executed_at):
+    def __init__(
+        self,
+        buy_or_sell: str,
+        order_type: OrderType,
+        price,
+        quantity: int,
+        oco_id: str,
+        executed_at,
+    ):
         self.buy_or_sell = buy_or_sell
         self.order_type = order_type
         self.price = price
         self.quantity = quantity
         self.oco_id = oco_id
         self.executed_at = executed_at
-    
-    def __repr__(self):
-        return f"<Order buy_or_sell={self.buy_or_sell} order_type={self.order_type} price={self.price} quantity={self.quantity} oco_id={self.oco_id}>"
-    
+
     def to_dict(self):
         return dict(
             buy_or_sell=self.buy_or_sell,
@@ -80,19 +90,34 @@ class Order:
             price=self.price,
             quantity=self.quantity,
             oco_id=self.oco_id,
-            executed_at=self.executed_at
+            executed_at=self.executed_at,
         )
 
 
+class Observation:
+    def __init__(self, observed_at, note: str):
+        self.observed_at = observed_at
+        self.note = note
+
+    def to_dict(self):
+        return dict(
+            observed_at=self.observed_at,
+            note=self.note,
+        )
+
 
 class Agent:
-    def __init__(self, params):
+    def __init__(self, params: Dict):
         self.params = params
         self.positions = 0
         self.orders = []
         self.pts = 0.0
         self.able_to_reload = True
         self.filled_orders = []
+        self.observations = []
+
+    def or_mid_point(self):
+        return (self.params["or_high"] + self.params["or_low"]) / 2.0
 
     def log(self, msg):
         print(msg)
@@ -106,10 +131,14 @@ class Agent:
 
     def flatten_all(self, row):
         if self.positions >= 0:
-            market_order = Order("sell", OrderType.MARKET, row.close, self.positions, None, None)
+            market_order = Order(
+                "sell", OrderType.MARKET, row.close, self.positions, None, None
+            )
             self.fill_order(market_order, row)
         if self.positions <= 0:
-            market_order = Order("buy", OrderType.MARKET, row.close, -1 * self.positions, None, None)
+            market_order = Order(
+                "buy", OrderType.MARKET, row.close, -1 * self.positions, None, None
+            )
             self.fill_order(market_order, row)
 
     def create_stop_order(self, buy_or_sell, stop_price, quantity, oco_id=None):
@@ -122,7 +151,6 @@ class Agent:
 
     def create_oco_bracket(self, buy_or_sell, stop_price, limit_price, quantity):
         oco_id = str(uuid.uuid4())
-        # import ipdb; ipdb.set_trace()
         self.create_stop_order(buy_or_sell, stop_price, quantity, oco_id)
         self.create_limit_order(buy_or_sell, limit_price, quantity, oco_id)
 
@@ -141,27 +169,30 @@ class Agent:
         if order.buy_or_sell == "buy":
             self.positions = self.positions + order.quantity
             self.pts += order.quantity * row.close
-            self.log(f"BOT {order.quantity} @ {row.close}. Type={order.order_type.value}")
+            self.log(
+                f"BOT {order.quantity} @ {row.close}. Type={order.order_type.value}"
+            )
 
         if order.buy_or_sell == "sell":
             self.positions = self.positions - order.quantity
             self.pts -= order.quantity * row.close
-            self.log(f"SOLD {order.quantity} @ {row.close}. Type={order.order_type.value}")
-    
+            self.log(
+                f"SOLD {order.quantity} @ {row.close}. Type={order.order_type.value}"
+            )
+
         order.executed_at = row.name
         self.filled_orders.append(order.to_dict())
-        
-        self.remove_order_and_related_orders(order)
-        
-        self.log_status()
 
+        self.remove_order_and_related_orders(order)
+
+        self.log_status()
 
     def evaluate_and_trigger_orders(self, row):
         for order in self.orders:
             if order.buy_or_sell == "sell":
                 if order.order_type == OrderType.STOP and row.close <= order.price:
                     self.fill_order(order, row)
-                    
+
                 if order.order_type == OrderType.LIMIT and row.close >= order.price:
                     self.fill_order(order, row)
 
@@ -173,18 +204,24 @@ class Agent:
                     self.fill_order(order, row)
 
     def enter(self, row, buy_or_sell, quantity):
+        # enter long
         if buy_or_sell == "buy":
-            market_order = Order("buy", OrderType.MARKET, row.close, quantity, None, None)
-            stop_price = row.close - risk_points
+            market_order = Order(
+                "buy", OrderType.MARKET, row.close, quantity, None, None
+            )
+            stop_price = max((row.close - risk_points), self.or_mid_point())
             limit_price = row.close + payline_points
             self.create_oco_bracket("sell", stop_price, limit_price, quantity)
 
+        # enter short
         if buy_or_sell == "sell":
-            market_order = Order(buy_or_sell, OrderType.MARKET, row.close, quantity, None, None)
-            stop_price = row.close + risk_points
+            market_order = Order(
+                buy_or_sell, OrderType.MARKET, row.close, quantity, None, None
+            )
+            stop_price = min((row.close + risk_points), self.or_mid_point())
             limit_price = row.close - payline_points
             self.create_oco_bracket("buy", stop_price, limit_price, quantity)
-            
+
         self.fill_order(market_order, row)
         self.able_to_reload = False
 
@@ -198,10 +235,15 @@ class Agent:
 
         if self.positions != 0:
             self.evaluate_and_trigger_orders(row)
-        
+
+        if row.close >= self.params["or_low"] and row.close <= self.params["or_high"]:
+            self.observations.append(Observation(row.name, "crossed_or").to_dict())
+
         if self.able_to_reload == False and self.positions == 0:
-            if self.params["or_low"] >= row.close and row.close <= self.params["or_high"]:
-                print("able to reload")
+            if row.close >= (
+                self.params["or_low"] - reset_extension_pts
+            ) and row.close <= (self.params["or_high"] + reset_extension_pts):
+                self.log("able to reload")
                 self.able_to_reload = True
 
 
@@ -221,19 +263,14 @@ def run_simulation(df, agent):
 
     agent.flatten_all(row)
 
-    # TODO,
-    # create plot showing
-    # 1. asset price
-    # 2. horizontal line with OR all the way across
-    # 3. Buy and Sells
-
     # TODO handle new days
+    filled_orders_df = pd.DataFrame(agent.filled_orders)
+    observations_df = pd.DataFrame(agent.observations)
+    generate_plot(date, df, filled_orders_df, observations_df)
 
-    df.to_csv("asset_prices.csv")
-    fills = pd.DataFrame(agent.filled_orders)
-    fills.to_csv("filled_orders.csv")
+    import ipdb
 
-    import ipdb; ipdb.set_trace()
+    ipdb.set_trace()
 
 
 df = get_instrument_data()
