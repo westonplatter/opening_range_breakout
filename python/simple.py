@@ -207,9 +207,13 @@ class Agent:
 
 def run_simulation(df, agent):
     date = df.index.values[0]
-    or_range = (agent.params['or_high'], agent.params['or_low'])
+    high, low = determine_or(df)
+    or_range = high - low
+    or_range = (high, low)
     msg = f"------------ running sim for {date}. {or_range}"
     print(msg)
+
+    agent.params = {"or_high": high, "or_low": low}
 
     # end 15 mins before the close to end flat each day
     for i, row in df.between_time("12:30:31", "19:45:00").iterrows():
@@ -222,6 +226,12 @@ def run_simulation(df, agent):
     # 1. asset price
     # 2. horizontal line with OR all the way across
     # 3. Buy and Sells
+
+    # TODO handle new days
+
+    df.to_csv("asset_prices.csv")
+    fills = pd.DataFrame(agent.filled_orders)
+    fills.to_csv("filled_orders.csv")
 
     import ipdb; ipdb.set_trace()
 
@@ -240,13 +250,4 @@ for k, v in df.groupby(df.index.date):
         # skip sundays
         continue
 
-    high, low = determine_or(v)
-    or_range = high - low
-
-    params = {
-        "or_high": high,
-        "or_low": low,
-    }
-    # print(k)
-
-    run_simulation(v, Agent(params=params))
+    run_simulation(v, Agent(params={}))
