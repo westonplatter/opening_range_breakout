@@ -23,10 +23,7 @@ def condense_assset_df(ddf, agg_interval):
 
 
 def prepare_asset_data(ddf, agg_interval):
-    # ddf.ts = pd.to_datetime(ddf.ts)
-    # ddf.set_index("ts", inplace=True)
-    ddf = condense_assset_df(ddf, agg_interval)
-    return ddf
+    return condense_assset_df(ddf, agg_interval)
 
 
 def prepare_filled_orders_data(ddf):
@@ -49,41 +46,49 @@ def get_opening_range_last_ts(ddf):
 
 
 def only_rth_data(ddf):
-    return ddf.between_time("12:30:00", "20:00:00")
+    return ddf.between_time("10:30:00", "20:00:00")
 
 
 def dot_annotation_for_order(order_row):
     if order_row.buy_or_sell == "buy":
-        return "go"
+        # return "go"
+        return "bo"
     if order_row.buy_or_sell == "sell":
         return "ro"
 
 
 def plot_filled_orders(date, ddf, ddf_filled_orders, observations_ddf):
-    plt.figure(figsize=(15, 8))
-    plt.grid(True)
+    # plt.figure(figsize=(15, 8))
+    # plt.grid(True)
+    fig = plt.figure(figsize=(20, 15)) 
+    # gs = gridspec.GridSpec(2, 1, height_ratios=[5, 2])
+    gs = gridspec.GridSpec(1, 1, height_ratios=[1])
+    ax1 = plt.subplot(gs[0])
+    # ax2 = plt.subplot(gs[1]) # TODO add MACD(26, 12, 9) on 30 second data
+
+    ax1.grid(True)
+    # ax2.grid(True)
 
     title = f"date = {date}"
     plt.title(title)
 
     or_high, or_low = get_opening_range(ddf)
 
-    plt.plot(only_rth_data(ddf).close)
+    ax1.plot(only_rth_data(ddf).close)
 
     # OR high, low, & middle lines
-    plt.axhline(y=or_high, color="r", lw=0.8)
-    plt.axhline(y=or_low, color="r", lw=0.8)
-    plt.axhline(y=((or_high + or_low)) / 2, color="b", lw=0.4)
+    ax1.axhline(y=or_high, color="r", lw=0.8)
+    ax1.axhline(y=or_low, color="r", lw=0.8)
+    ax1.axhline(y=((or_high + or_low)) / 2, color="b", lw=0.4)
 
-    x = get_opening_range_last_ts(ddf)
-    plt.axvline(x=x, color="r", lw=0.6)
+    ax1.axvline(x=get_opening_range_last_ts(ddf), color="r", lw=0.6)
 
     for i, order_row in ddf_filled_orders.iterrows():
         annotation = dot_annotation_for_order(order_row)
-        plt.plot(order_row.executed_at, order_row.price, annotation)
+        ax1.plot(order_row.executed_at, order_row.price, annotation)
 
     for i, observation_row in observations_ddf.iterrows():
-        plt.axvline(x=observation_row.observed_at, color="g", lw=0.6)
+        ax1.axvline(x=observation_row.observed_at, color="g", lw=0.6)
 
     plt.savefig(f"chart_{date}.png")
 
