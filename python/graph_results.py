@@ -60,7 +60,7 @@ def dot_annotation_for_order(order_row):
 def plot_filled_orders(date, ddf, ddf_filled_orders, observations_ddf):
     # plt.figure(figsize=(15, 8))
     # plt.grid(True)
-    fig = plt.figure(figsize=(20, 15)) 
+    fig = plt.figure(figsize=(20, 15))
     # gs = gridspec.GridSpec(2, 1, height_ratios=[5, 2])
     gs = gridspec.GridSpec(1, 1, height_ratios=[1])
     ax1 = plt.subplot(gs[0])
