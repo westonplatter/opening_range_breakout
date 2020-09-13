@@ -46,14 +46,14 @@ def get_opening_range_last_ts(ddf):
 
 
 def only_rth_data(ddf):
-    return ddf.between_time("10:30:00", "20:00:00")
+    return ddf #.between_time("08:30:00", "20:00:00")
 
 
 def dot_annotation_for_order(order_row):
-    if order_row.buy_or_sell == "buy":
+    if order_row.buy_or_sell == "BUY":
         # return "go"
         return "bo"
-    if order_row.buy_or_sell == "sell":
+    if order_row.buy_or_sell == "SELL":
         return "ro"
 
 
